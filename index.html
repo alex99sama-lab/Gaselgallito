@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Punto de Venta - Gas LP</title>
+<style>
+:root{--azul:#0b5cad;--gris:#f4f6f8;--verde:#1e9e50;--rojo:#d33;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;}
+body{background:var(--gris);}
+header{background:var(--azul);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+header img{width:48px;height:48px;object-fit:contain;background:#fff;border-radius:8px;padding:3px;}
+header h1{font-size:1.2rem;}
+main{display:flex;gap:16px;padding:16px;flex-wrap:wrap;align-items:flex-start;}
+section{background:#fff;border-radius:12px;padding:18px;box-shadow:0 2px 8px #0001;flex:1;min-width:320px;}
+label{display:block;font-size:.85rem;font-weight:bold;color:#444;margin:12px 0 4px;}
+input,textarea{width:100%;padding:9px;border:1px solid #ccd;border-radius:8px;font-size:1rem;}
+input:focus,textarea:focus{outline:2px solid var(--azul);}
+.big{font-size:1.4rem;font-weight:bold;}
+button{cursor:pointer;border:none;border-radius:8px;padding:11px 16px;font-size:1rem;font-weight:bold;}
+.btn-azul{background:var(--azul);color:#fff;}
+.btn-verde{background:var(--verde);color:#fff;}
+.btn-gris{background:#dde2e7;color:#333;}
+.btn-rojo{background:var(--rojo);color:#fff;}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.precio-letra{margin-top:14px;background:#eef6ff;border:1px dashed var(--azul);border-radius:8px;padding:10px;font-size:.95rem;}
+.precio-letra b{color:var(--azul);}
+#ticket{width:302px;background:#fff;border:2px dashed #bbb;border-radius:6px;padding:12px 10px;font-family:"Courier New",monospace;font-size:12px;white-space:pre-line;margin:0 auto;line-height:1.4;}
+#ticket .centrado{text-align:center;}
+#ticket .izquierda{text-align:left;}
+#ticket p{margin-bottom:2px;}
+#ticket img{display:block;margin:0 auto 6px;max-width:130px;}
+.total{font-size:13px;font-weight:bold;margin:2px 0;}
+.status{font-size:.85rem;padding:6px 10px;border-radius:6px;background:#fff3cd;color:#856404;display:inline-block;margin-top:10px;}
+.status.ok{background:#d4edda;color:#155724;}
+@media(max-width:700px){main{flex-direction:column;}}
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<header>
+  <img id="logoHeader" alt="logo" style="display:none">
+  <div>
+    <h1 id="tituloHeader">⛽ Punto de Venta - Gas LP</h1>
+    <small id="subHeader">Impresora MP210 / Térmica BLE</small>
+  </div>
+</header>
+
+<main>
+<!-- ============ VENTA ============ -->
+<section>
+  <h2>🧾 Nueva venta</h2>
+  <label>Precio por litro ($)</label>
+  <input type="number" id="precioLitro" step="0.01" min="0" placeholder="Ej. 12.50">
+  <label>Monto a cargar ($)</label>
+  <input type="number" id="monto" step="0.01" min="0" placeholder="Ej. 200" class="big">
+  <div class="precio-letra">
+    ⛽ <b>Cantidad:</b> <span id="litrosOut">0.000</span> litros<br>
+    💵 <b>Total:</b> $<span id="totalOut">0.00</span>
+  </div>
+  <div class="row">
+    <button class="btn-verde" onclick="vender()">✅ Vender e imprimir</button>
+  </div>
+  <div class="row">
+    <button class="btn-azul" onclick="conectar()">📶 Conectar impresora MP210</button>
+    <button class="btn-rojo" onclick="desconectar()" id="btnDesc" style="display:none">❌ Desconectar</button>
+  </div>
+  <span class="status" id="statusBt">⚠️ Impresora no conectada</span>
+</section>
+
+<!-- ============ CONFIGURACIÓN ============ -->
+<section id="panelConfig" style="display:none">
+  <h2>⚙️ Configuración del ticket</h2>
+  <label>Nombre de la empresa</label>
+  <input type="text" id="cfgNombre">
+  <label>Descripción / datos fiscales / dirección del ticket</label>
+  <textarea id="cfgDesc" rows="5" placeholder="EFE GAS S.A. DE C.V&#10;RFC: EGA._ 110801&#10;CARR. VSA NACAJUCA KM 1 500&#10;R/A SALOYA 2DA SECCION CP. 86220&#10;NACAJUCA TABASCO"></textarea>
+  <label>Logotipo (subir imagen)</label>
+  <input type="file" id="cfgLogo" accept="image/*">
+  <div class="row">
+    <button class="btn-azul" onclick="guardarConfig()">💾 Guardar configuración</button>
+    <button class="btn-rojo" onclick="borrarLogo()">🗑️ Quitar logo</button>
+  </div>
+
+  <h3 style="margin-top:22px">👁️ Vista previa del ticket</h3>
+  <div id="ticket"></div>
+  <div class="row" style="justify-content:center">
+    <button class="btn-gris" onclick="imprimirUltimo()">🖨️ Reimprimir último ticket</button>
+  </div>
+</section>
+</main>
+
+<button id="btnToggleConfig" onclick="toggleConfig()" style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:999;background:#34495e;color:#fff;border:none;border-radius:20px;padding:9px 22px;font-size:.9rem;font-weight:bold;cursor:pointer;box-shadow:0 2px 6px #0004;">⚙️ Mostrar configuración del ticket</button>
+
+<script>
+/* ================= ESTADO ================= */
+let device = null, btChar = null;
+let ultimoTicket = null;
+
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e){ return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const DEFAULT_DESC = `EFE GAS S.A. DE C.V\nRFC: EGA._ 110801\nCARR. VSA NACAJUCA KM 1 500\nR/A SALOYA 2DA SECCION CP. 86220\nNACAJUCA TABASCO`;
+
+let config = load('gaslp_config', { nombre:'GAS EL GALLITO', desc: DEFAULT_DESC, logo:null });
+
+/* ================= CONFIG: MOSTRAR / OCULTAR ================= */
+function toggleConfig(){
+  const p = $('panelConfig');
+  const visible = p.style.display !== 'none';
+  p.style.display = visible ? 'none' : '';
+  $('btnToggleConfig').textContent = visible ? '⚙️ Mostrar configuración del ticket' : '📄 Ocultar configuración del ticket';
+}
+
+/* ================= PRECIO POR LITRO (LOCALSTORAGE) ================= */
+function guardarPrecio(){
+  save('gaslp_precio', parseFloat($('precioLitro').value) || 0);
+}
+$('precioLitro').addEventListener('input', guardarPrecio);
+
+/* ================= CÁLCULO ================= */
+function calcular(){
+  const p = parseFloat($('precioLitro').value) || 0;
+  const m = parseFloat($('monto').value) || 0;
+  const l = p > 0 ? m / p : 0;
+  $('litrosOut').textContent = l.toFixed(3);
+  $('totalOut').textContent = m.toFixed(2);
+  renderTicketPreview();
+}
+$('precioLitro').addEventListener('input', calcular);
+$('monto').addEventListener('input', calcular);
+
+function numeroALetras(n){
+  const u=['','UN','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE','DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISEIS','DIECISIETE','DIECINUEVE','VEINTE'];
+  const d=['','','VEINTE','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA'];
+  const c=['','CIEN','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS','SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS'];
+  if(n<0) return 'MENOS '+numeroALetras(-n);
+  if(n<21) return u[Math.floor(n)];
+  if(n<100) return d[Math.floor(n/10)] + (n%10? ' Y '+numeroALetras(n%10):'');
+  if(n<1000) return (n===100?'CIEN':c[Math.floor(n/100)]) + (n%100?' '+numeroALetras(n%100):'');
+  if(n<1000000) return numeroALetras(Math.floor(n/1000))+' MIL'+(n%1000?' '+numeroALetras(n%1000):'');
+  return n.toFixed(2);
+}
+
+/* ================= FOLIO ================= */
+function folioActual(){ return String(load('gaslp_folio', 1)).padStart(6,'0'); }
+function siguienteFolio(){
+  let f = load('gaslp_folio', 1);
+  save('gaslp_folio', f + 1);
+  return String(f).padStart(6,'0');
+}
+function hoy(){ return new Date().toLocaleDateString('es-MX'); }
+function ahora(){ return new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}); }
+
+/* ================= TICKET (DATOS) ================= */
+function datosTicket(){
+  const p = parseFloat($('precioLitro').value)||0;
+  const m = parseFloat($('monto').value)||0;
+  return {
+    folio: ultimoTicket ? ultimoTicket.folio : folioActual(),
+    fecha: hoy(), hora: ahora(),
+    precio: p, litros: p>0 ? m/p : 0, total: m,
+    letras: numeroALetras(Math.floor(m)) + ' PESOS ' + Math.round((m%1)*100) + '/100 M.N.'
+  };
+}
+
+function htmlTicket(t){
+  const descTxt = config.desc ? esc(config.desc).replace(/\n/g,'<br>') : '';
+  return `
+  ${config.logo ? `<img src="${config.logo}">` : ''}
+  <p class="izquierda"><b>${esc(config.nombre)}</b></p>
+  <br>
+  ${descTxt ? `<p class="izquierda">${descTxt}</p><br>` : ''}
+  <p class="izquierda">TICKET DE SERVICIO</p>
+  <br>
+  <p class="izquierda">FECHA DE SERVICIO:</p>
+  <p class="izquierda">${t.fecha}</p>
+  <br>
+  <p class="izquierda">HORA DE SERVICIO:</p>
+  <p class="izquierda">${t.hora}</p>
+  <br>
+  <p class="izquierda">CLIENTE:</p>
+  <br>
+  <p class="izquierda">UNIDAD DE SERVICIO POR LITRO</p>
+  <br>
+  <p class="izquierda">CANTIDAD:   Lt ${t.litros.toFixed(2)}</p>
+  <br><br>
+  <p class="izquierda">PRECIO UNITARIO: $${t.precio.toFixed(2)}</p>
+  <br>
+  <p class="total izquierda">TOTAL: $ ${Math.round(t.total)}</p>
+  <br>
+  <p class="izquierda">FOLIO: ${t.folio}</p>
+  <br>
+  <p class="izquierda">quejas y/o sugerencias</p>
+  <p class="izquierda">www.gaselgallito.mx</p>
+  <br>
+  <p class="izquierda">.</p>
+  <p class="izquierda">.</p>
+  <p class="izquierda">.</p>
+  <p class="izquierda">.</p>
+  <p class="izquierda">.</p>
+  <br>
+  <p class="izquierda">GRACIAS POR SU COMPRA</p>
+  <br><br>
+  <p class="centrado"><b>ORIGINAL</b></p>`;
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function renderTicketPreview(){
+  if(ultimoTicket){ $('ticket').innerHTML = htmlTicket(ultimoTicket); return; }
+  const p = parseFloat($('precioLitro').value)||0;
+  const m = parseFloat($('monto').value)||0;
+  if(p>0 || m>0){ $('ticket').innerHTML = htmlTicket({folio:folioActual(),fecha:hoy(),hora:ahora(),precio:p,litros:p>0?m/p:0,total:m,letras:numeroALetras(Math.floor(m))+' PESOS '+Math.round((m%1)*100)+'/100 M.N.'}); }
+}
+
+/* ================= VENTA ================= */
+async function vender(){
+  const p = parseFloat($('precioLitro').value)||0;
+  const m = parseFloat($('monto').value)||0;
+  if(p<=0){ alert('⚠️ Ingrese el precio por litro.'); return; }
+  if(m<=0){ alert('⚠️ Ingrese el monto a cargar.'); return; }
+  const venta = { folio: siguienteFolio(), fecha:hoy(), hora:ahora(), precio:p, litros:m/p, total:m };
+  venta.letras = numeroALetras(Math.floor(m))+' PESOS '+Math.round((m%1)*100)+'/100 M.N.';
+  ultimoTicket = venta;
+  $('ticket').innerHTML = htmlTicket(venta);
+  if(btChar){ await imprimirTicket(venta); }
+  else { alert('✅ Venta registrada: Folio '+venta.folio+'\n(Impresora no conectada, no se imprimió)'); }
+  $('monto').value=''; calcular();
+}
+
+/* ================= BLUETOOTH MP210 ================= */
+const CANDIDATOS = [
+  '0000ffe5-0000-1000-8000-00805f9b34fb',
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000ff00-0000-1000-8000-00805f9b34fb',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+  '0000fee7-0000-1000-8000-00805f9b34fb'
+];
+
+function setStatus(msg, ok){ $('statusBt').textContent = msg; $('statusBt').classList.toggle('ok', !!ok); }
+
+async function conectar(){
+  try{
+    setStatus('⏳ Buscando impresoras cercanas...');
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices:true, optionalServices: CANDIDATOS.concat(['device_information']) });
+    setStatus('⏳ Conectando a ' + (device.name||'dispositivo') + '...');
+    const server = await device.gatt.connect();
+    const services = await server.getPrimaryServices();
+    btChar = null;
+    for(const svc of services){
+      const chars = await svc.getCharacteristics();
+      for(const c of chars){
+        if(c.properties.write || c.properties.writeWithoutResponse){ btChar = c; break; }
+      }
+      if(btChar) break;
+    }
+    if(!btChar) throw new Error('No se encontró canal de escritura en la impresora.');
+    device.addEventListener('gattserverdisconnected', onDesc);
+    setStatus('✅ Conectada: ' + (device.name||'MP210'), true);
+    $('btnDesc').style.display='inline-block';
+  }catch(e){
+    setStatus('❌ ' + e.message);
+    alert('❌ No se pudo conectar:\n' + e.message);
+  }
+}
+
+function desconectar(){ if(device && device.gatt.connected) device.gatt.disconnect(); }
+function onDesc(){
+  btChar=null; device=null;
+  $('statusBt').textContent='⚠️ Impresora no conectada'; $('statusBt').classList.remove('ok');
+  $('btnDesc').style.display='none';
+}
+
+/* ---- PROTOCOLO Y ENVÍO SEGURO CON CHUNKING PARA EVITAR SATURACIÓN DE BÚFER ---- */
+const E = { 
+  INIT:[0x1B,0x40], 
+  ALIGN_C:[0x1B,0x61,1], 
+  ALIGN_L:[0x1B,0x61,0], 
+  ALIGN_R:[0x1B,0x61,2], 
+  BOLD_ON:[0x1B,0x45,1], 
+  BOLD_OFF:[0x1B,0x45,0], 
+  CUT:[0x1D,0x56,0x42,0x00], 
+  FEED:[0x1B,0x64,3]
+};
+const enc = s => new TextEncoder().encode(s);
+
+async function enviarChunked(bytes){
+  if(!btChar) return;
+  const chunkSize = 20;
+  for(let i = 0; i < bytes.length; i += chunkSize){
+    const chunk = bytes.slice(i, i + chunkSize);
+    if(btChar.properties.writeWithoutResponse){
+      await btChar.writeValueWithoutResponse(chunk);
+    } else {
+      await btChar.writeValue(chunk);
+    }
+    await sleep(15);
+  }
+}
+
+async function enviarBytes(partes){
+  let totalLength = partes.reduce((acc, p) => acc + p.length, 0);
+  let merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for(let p of partes){
+    merged.set(p, offset);
+    offset += p.length;
+  }
+  await enviarChunked(merged);
+}
+
+function procesarLogo(){
+  return new Promise(res=>{
+    if(!config.logo) return res(null);
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = ()=>{
+      const targetWidth = 256;
+      const ratio = targetWidth / img.width;
+      const targetHeight = Math.round(img.height * ratio);
+      
+      const c = document.createElement('canvas'); 
+      c.width = targetWidth; 
+      c.height = targetHeight;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#FFFFFF'; 
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+      
+      const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+      const data = imgData.data;
+      
+      const widthBytes = Math.ceil(targetWidth / 8);
+      const header = new Uint8Array([
+        0x1D, 0x76, 0x30, 0x00,
+        widthBytes & 0xFF, (widthBytes >> 8) & 0xFF,
+        targetHeight & 0xFF, (targetHeight >> 8) & 0xFF
+      ]);
+
+      const buffer = new Uint8Array(widthBytes * targetHeight);
+      for (let y = 0; y < targetHeight; y++) {
+        for (let x = 0; x < targetWidth; x++) {
+          const idx = (y * targetWidth + x) * 4;
+          const r = data[idx], g = data[idx+1], b = data[idx+2];
+          const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
+          if (brightness < 160) {
+            const byteIndex = y * widthBytes + Math.floor(x / 8);
+            const bitIndex = 7 - (x % 8);
+            buffer[byteIndex] |= (1 << bitIndex);
+          }
+        }
+      }
+      
+      const resData = new Uint8Array(header.length + buffer.length);
+      resData.set(header, 0);
+      resData.set(buffer, header.length);
+      res(resData);
+    };
+    img.onerror = () => res(null);
+    img.src = config.logo;
+  });
+}
+
+async function imprimirTicket(t){
+  if(!btChar){ alert('⚠️ Impresora no conectada.'); return; }
+  
+  try {
+    setStatus('⏳ Enviando logo...');
+    const logoData = await procesarLogo();
+    
+    await enviarBytes([new Uint8Array(E.INIT), new Uint8Array(E.ALIGN_C)]);
+    
+    if(logoData){
+      await enviarChunked(logoData);
+      await enviarBytes([enc('\n')]);
+      await sleep(100);
+    }
+    
+    setStatus('⏳ Enviando texto del ticket...');
+    
+    let lineasBody = [];
+    lineasBody.push(new Uint8Array(E.ALIGN_L));
+    lineasBody.push(enc(config.nombre.toUpperCase() + '\n\n'));
+    
+    if (config.desc && config.desc.trim() !== '') {
+      config.desc.trim().split('\n').forEach(dLine => {
+        lineasBody.push(enc(dLine + '\n'));
+      });
+      lineasBody.push(enc('\n'));
+    }
+
+    lineasBody.push(enc('TICKET DE SERVICIO\n\n'));
+    lineasBody.push(enc('FECHA DE SERVICIO:\n' + t.fecha + '\n\n'));
+    lineasBody.push(enc('HORA DE SERVICIO:\n' + t.hora + '\n\n'));
+    lineasBody.push(enc('CLIENTE:\n\n'));
+    lineasBody.push(enc('UNIDAD DE SERVICIO POR LITRO\n\n'));
+    lineasBody.push(enc('CANTIDAD:   Lt ' + t.litros.toFixed(2) + '\n\n\n'));
+    lineasBody.push(enc('PRECIO UNITARIO: $' + t.precio.toFixed(2) + '\n\n'));
+    lineasBody.push(new Uint8Array([...E.BOLD_ON]));
+    lineasBody.push(enc('TOTAL: $ ' + Math.round(t.total) + '\n\n'));
+    lineasBody.push(new Uint8Array([...E.BOLD_OFF]));
+    lineasBody.push(enc('FOLIO: ' + t.folio + '\n\n'));
+    lineasBody.push(enc('quejas y/o sugerencias\n'));
+    lineasBody.push(enc('www.gaselgallito.mx\n\n'));
+    lineasBody.push(enc('.\n.\n.\n.\n.\n\n'));
+    lineasBody.push(enc('GRACIAS POR SU COMPRA\n\n\n'));
+    lineasBody.push(new Uint8Array(E.ALIGN_C));
+    lineasBody.push(new Uint8Array([...E.BOLD_ON]));
+    lineasBody.push(enc('ORIGINAL\n\n'));
+    lineasBody.push(new Uint8Array([...E.BOLD_OFF, ...E.FEED, ...E.CUT]));
+
+    await enviarBytes(lineasBody);
+    
+    setStatus('✅ Impresión finalizada con éxito', true);
+  } catch(e) {
+    console.error(e);
+    setStatus('❌ Error al imprimir: ' + e.message);
+    alert('❌ Error al enviar datos a la impresora: ' + e.message);
+  }
+}
+
+async function imprimirUltimo(){
+  if(ultimoTicket) await imprimirTicket(ultimoTicket);
+  else alert('⚠️ Aún no hay venta en esta sesión.');
+}
+
+/* ================= CONFIG ================= */
+function cargarConfig(){
+  $('cfgNombre').value = config.nombre;
+  $('cfgDesc').value = config.desc;
+  aplicarHeader();
+}
+function aplicarHeader(){
+  if(config.logo){ $('logoHeader').src=config.logo; $('logoHeader').style.display='block'; }
+  else $('logoHeader').style.display='none';
+  $('tituloHeader').textContent = config.nombre ? '⛽ '+config.nombre : '⛽ Punto de Venta - Gas LP';
+}
+function guardarConfig(){
+  config.nombre = $('cfgNombre').value.trim() || 'GAS LP';
+  config.desc = $('cfgDesc').value;
+  save('gaslp_config', config);
+  aplicarHeader(); renderTicketPreview();
+  alert('💾 Configuración guardada.');
+}
+function borrarLogo(){ config.logo=null; save('gaslp_config',config); $('cfgLogo').value=''; aplicarHeader(); renderTicketPreview(); }
+
+let guardandoTimer=null;
+function autoguardar(){
+  clearTimeout(guardandoTimer);
+  guardandoTimer=setTimeout(()=>{
+    config.nombre = $('cfgNombre').value.trim() || 'GAS LP';
+    config.desc = $('cfgDesc').value;
+    save('gaslp_config', config);
+    aplicarHeader(); renderTicketPreview();
+  },600);
+}
+$('cfgNombre').addEventListener('input', autoguardar);
+$('cfgDesc').addEventListener('input', autoguardar);
+
+$('cfgLogo').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{ const img=new Image(); img.onload=()=>{
+      const c=document.createElement('canvas'), M=260, s=Math.min(1,M/Math.max(img.width,img.height));
+      c.width=img.width*s; c.height=img.height*s;
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      config.logo=c.toDataURL('image/png'); save('gaslp_config',config);
+      aplicarHeader(); renderTicketPreview(); alert('🖼️ Logo guardado.');
+    }; img.src=r.result; };
+  r.readAsDataURL(f);
+});
+
+/* ================= ARRANQUE / COMPATIBILIDAD ================= */
+function verificarBluetooth(){
+  if('bluetooth' in navigator && navigator.bluetooth){
+    setStatus('🔵 Bluetooth disponible. Toca "Conectar impresora MP210" para iniciar.', true);
+    return true;
+  }
+  return false;
+}
+
+if(load('gaslp_precio',0) > 0){ $('precioLitro').value = load('gaslp_precio',0); }
+cargarConfig(); calcular(); renderTicketPreview(); verificarBluetooth();
+</script>
+</body>
+</html>
